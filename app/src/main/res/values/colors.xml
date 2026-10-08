@@ -2,4 +2,13 @@
 <resources>
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
+    <color name="graphite">#101216</color>
+    <color name="surface">#181C21</color>
+    <color name="surface_high">#222831</color>
+    <color name="accent_primary">#5E82AA</color>
+    <color name="accent_primary_light">#A9C1DC</color>
+    <color name="accent_secondary">#55B878</color>
+    <color name="text_primary">#E8E5DF</color>
+    <color name="text_secondary">#9CA3AB</color>
+    <color name="success">#55B878</color>
 </resources>

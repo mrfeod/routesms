@@ -9,64 +9,47 @@ import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 
-class HealthCheckWorker(appContext: Context, params: WorkerParameters) :
-    CoroutineWorker(appContext, params) {
-
+class HealthCheckWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val ctx = applicationContext
+        val context = applicationContext
+        val service = MappingStore.serviceRoute(context)
+        if (!service.config.isConfigured) return Result.success()
 
-        val problems = mutableListOf<String>()
-
-        val keys = MappingStore.allKeys(ctx)
-        if (keys.isEmpty()) problems += "Нет настроенных маппингов."
-
-        val smsGranted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
-        if (!smsGranted) problems += "Нет разрешения RECEIVE_SMS."
-
-        val network = hasNetwork(ctx)
-        if (!network) problems += "Нет подключения к сети."
-
-        if (network && keys.isNotEmpty()) {
-            for (k in keys) {
-                val cfg = MappingStore.loadMapping(ctx, k) ?: continue
-                val ok = try {
-                    TelegramClient(cfg.botToken).sendChatAction(cfg.chatId)
-                } catch (_: Exception) { false }
-                if (!ok) {
-                    problems += "Бот/чат недоступны для «$k»."
-                    safeReport(cfg, "⚠️ Проверь телефон с приложением: бот/чат недоступны для «$k».")
-                }
+        val routes = MappingStore.allRoutes(context)
+        val activeSims = routes.filter { it.kind == RouteKind.SIM && it.active }
+        val problems = buildList {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+                add("нет разрешения RECEIVE_SMS")
             }
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                add("нет разрешения READ_PHONE_STATE")
+            }
+            if (!hasNetwork(context)) add("нет подключения к интернету")
+            if (activeSims.isEmpty()) add("не обнаружено активных SIM")
+            activeSims.filterNot { it.config.isConfigured }.forEach { add("не настроен маршрут «${it.displayName()}»") }
         }
 
-        if (problems.isNotEmpty()) {
-            val reason = problems.joinToString("\n")
-            val now = System.currentTimeMillis()
-            val prefs = ctx.getSharedPreferences("health", Context.MODE_PRIVATE)
-            val lastReport = prefs.getLong("last_report_ts", 0L)
-            val twelveHoursMs = 12L * 60 * 60 * 1000
-            if (now - lastReport >= twelveHoursMs) {
-                for (k in keys) {
-                    val cfg = MappingStore.loadMapping(ctx, k) ?: continue
-                    safeReport(cfg, "⚠️ Проверь телефон с приложением:\n$reason")
-                }
-                prefs.edit().putLong("last_report_ts", now).apply()
-            }
-        } else {
-            val prefs = ctx.getSharedPreferences("health", Context.MODE_PRIVATE)
-            prefs.edit().putLong("last_ok_ts", System.currentTimeMillis()).apply()
+        if (!hasNetwork(context)) return Result.retry()
+        val lastSuccess = context.getSharedPreferences("health", Context.MODE_PRIVATE).getLong("last_ok_ts", 0L)
+        val status = if (problems.isEmpty()) "✅ Route SMS работает" else "⚠️ Route SMS: ${problems.joinToString("; ")}"
+        val heartbeat = buildString {
+            append(status)
+            append("\nАктивные SIM: ")
+            append(activeSims.joinToString { it.displayName() }.ifBlank { "нет" })
+            append("\nПоследняя успешная пересылка: ")
+            append(if (lastSuccess == 0L) "ещё не было" else java.text.DateFormat.getDateTimeInstance().format(lastSuccess))
         }
-        return Result.success()
+        return try {
+            TelegramClient(service.botToken).sendMessage(service.chatId, heartbeat)
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
     }
 
-    private fun hasNetwork(ctx: Context): Boolean {
-        val cm = ctx.getSystemService(ConnectivityManager::class.java)
-        val net = cm?.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(net) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
-
-    private suspend fun safeReport(cfg: BotConfig, text: String) {
-        try { TelegramClient(cfg.botToken).sendMessage(cfg.chatId, text) } catch (_: Exception) {}
+    private fun hasNetwork(context: Context): Boolean {
+        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = manager.activeNetwork ?: return false
+        return manager.getNetworkCapabilities(network)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
     }
 }

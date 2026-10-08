@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Route SMS — назначьте бота/чат для каждой SIM"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:paddingBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/editKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Key (например: mapping_sub_1 или mapping_default)"
+            android:inputType="text"/>
+
+        <EditText
+            android:id="@+id/editBotToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Bot Token"
+            android:inputType="textPassword"/>
+
+        <EditText
+            android:id="@+id/editChatId"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Chat ID"
+            android:inputType="text"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="8dp">
+
+            <Button
+                android:id="@+id/btnSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Save mapping"/>
+
+            <Space
+                android:layout_width="8dp"
+                android:layout_height="wrap_content" />
+
+            <Button
+                android:id="@+id/btnRemove"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Remove mapping"/>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnRequestPerm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Request SMS permission"
+            android:paddingTop="8dp"/>
+
+        <Button
+            android:id="@+id/btnRunHealthNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Run health check now"
+            android:paddingTop="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mappings:"
+            android:paddingTop="12dp"
+            android:textStyle="bold"/>
+
+        <ListView
+            android:id="@+id/listMappings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:dividerHeight="8dp"/>
+    </LinearLayout>
+</ScrollView>

@@ -22,6 +22,7 @@ class SmsReceiver : BroadcastReceiver() {
         val text = messages.joinToString(separator = "") { it.messageBody.orEmpty() }
         val subId = extractNumber(intent.extras, subscriptionKeys())?.toInt()
         val slot = extractNumber(intent.extras, listOf("slot", "slot_id", "simSlot", "phone"))?.toInt()
+        MappingStore.recordSmsReceived(context, subId, slot, System.currentTimeMillis())
         val data = Data.Builder()
             .putString(SmsForwardWorker.KEY_SENDER, sender)
             .putString(SmsForwardWorker.KEY_TEXT, text)

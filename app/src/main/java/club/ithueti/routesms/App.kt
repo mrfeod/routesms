@@ -9,15 +9,22 @@ import java.util.concurrent.TimeUnit
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
-        scheduleHealthCheck()
+        scheduleHealthCheck(this)
     }
 
-    private fun scheduleHealthCheck() {
-        val work = PeriodicWorkRequestBuilder<HealthCheckWorker>(12, TimeUnit.HOURS).build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "health_check",
-            ExistingPeriodicWorkPolicy.UPDATE,
-            work
-        )
+    companion object {
+        fun scheduleHealthCheck(context: android.content.Context) {
+            val intervalHours = HealthSettings.intervalHours(context).toLong()
+            if (intervalHours == 0L) {
+                WorkManager.getInstance(context).cancelUniqueWork("health_check")
+                return
+            }
+            val work = PeriodicWorkRequestBuilder<HealthCheckWorker>(intervalHours, TimeUnit.HOURS).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                "health_check",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                work
+            )
+        }
     }
 }

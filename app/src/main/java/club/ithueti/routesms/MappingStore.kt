@@ -1,6 +1,7 @@
 package club.ithueti.routesms
 
 import android.content.Context
+import android.content.Intent
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 
@@ -24,6 +25,7 @@ data class RouteRecord(
     val alias: String = "",
     val active: Boolean = false,
     val lastSeenAt: Long = 0L,
+    val lastSmsAt: Long = 0L,
     val botToken: String = "",
     val chatId: String = ""
 ) {
@@ -42,6 +44,7 @@ data class RouteRecord(
 }
 
 object MappingStore {
+    const val ACTION_SMS_ACTIVITY_CHANGED = "club.ithueti.routesms.SMS_ACTIVITY_CHANGED"
     private const val PREFS_V2 = "routes_v2"
     private const val LEGACY_PREFS = "sms2tg_mappings"
     const val SERVICE_ID = "service"
@@ -80,6 +83,17 @@ object MappingStore {
     fun defaultRoute(context: Context): RouteRecord = loadRoute(context, DEFAULT_ID)
     fun serviceRoute(context: Context): RouteRecord = loadRoute(context, SERVICE_ID)
 
+    fun recordSmsReceived(context: Context, subscriptionId: Int?, slotIndex: Int?, receivedAt: Long) {
+        val route = allRoutes(context).firstOrNull {
+            it.kind == RouteKind.SIM && (
+                (subscriptionId != null && it.subscriptionId == subscriptionId) ||
+                    (subscriptionId == null && slotIndex != null && it.slotIndex == slotIndex)
+                )
+        } ?: return
+        saveRoute(context, route.copy(lastSmsAt = receivedAt))
+        context.sendBroadcast(Intent(ACTION_SMS_ACTIVITY_CHANGED).setPackage(context.packageName))
+    }
+
     fun mergeDiscoveredSim(context: Context, discovered: RouteRecord) {
         val existing = loadRoute(context, discovered.id)
         val legacy = legacyConfig(context, "mapping_sub_${discovered.subscriptionId}")
@@ -88,6 +102,7 @@ object MappingStore {
             discovered.copy(
                 alias = existing.alias,
                 manualPhoneNumber = existing.manualPhoneNumber,
+                lastSmsAt = existing.lastSmsAt,
                 botToken = existing.botToken.ifBlank { legacy?.botToken.orEmpty() },
                 chatId = existing.chatId.ifBlank { legacy?.chatId.orEmpty() }
             )

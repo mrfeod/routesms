@@ -1,7 +1,10 @@
 package club.ithueti.routesms
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -36,6 +39,9 @@ class MainActivity : AppCompatActivity() {
     private var savePending = false
     private val saveHandler = Handler(Looper.getMainLooper())
     private val saveRunnable = Runnable { saveCurrentFields() }
+    private val smsActivityReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) = refreshSmsActivity()
+    }
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         getSharedPreferences("permissions", MODE_PRIVATE).edit().putBoolean("requested", true).apply()
         updatePermissionButton()
@@ -54,6 +60,21 @@ class MainActivity : AppCompatActivity() {
 
         routeAdapter = RouteAdapter()
         binding.spinnerRoutes.adapter = routeAdapter
+        binding.spinnerHeartbeatHours.apply {
+            minValue = HealthSettings.MIN_INTERVAL_HOURS
+            maxValue = HealthSettings.MAX_INTERVAL_HOURS
+            wrapSelectorWheel = false
+            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            setOnValueChangedListener { _, _, newValue ->
+                if (bindingFields || selectedRouteId != MappingStore.SERVICE_ID) return@setOnValueChangedListener
+                val previousHours = HealthSettings.intervalHours(this@MainActivity)
+                val savedHours = HealthSettings.setIntervalHours(this@MainActivity, newValue)
+                if (savedHours != previousHours) {
+                    App.scheduleHealthCheck(this@MainActivity)
+                    binding.textSaveState.text = if (savedHours == 0) "Heartbeat выключен" else "Сохранено"
+                }
+            }
+        }
         binding.spinnerRoutes.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val nextId = routes.getOrNull(position)?.id ?: return
@@ -94,6 +115,21 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         updatePermissionButton()
         if (hasPhonePermission()) refreshSims()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this,
+            smsActivityReceiver,
+            IntentFilter(MappingStore.ACTION_SMS_ACTIVITY_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    override fun onStop() {
+        unregisterReceiver(smsActivityReceiver)
+        super.onStop()
     }
 
     override fun onPause() {
@@ -177,11 +213,16 @@ class MainActivity : AppCompatActivity() {
         binding.editPhone.setText(route.effectivePhoneNumber)
         binding.editBotToken.setText(route.botToken)
         binding.editChatId.setText(route.chatId)
-        binding.textSaveState.text = "Сохранено"
+        binding.spinnerHeartbeatHours.value = HealthSettings.intervalHours(this)
+        binding.textSaveState.text = if (
+            route.kind == RouteKind.SERVICE && HealthSettings.intervalHours(this) == 0
+        ) "Heartbeat выключен" else "Сохранено"
 
         val isSim = route.kind == RouteKind.SIM
+        val isService = route.kind == RouteKind.SERVICE
         binding.textStatus.isVisible = isSim
         binding.textDescription.isVisible = !isSim
+        binding.layoutHeartbeat.isVisible = isService
         binding.layoutPhone.isVisible = isSim
         binding.textSlot.isVisible = isSim
         binding.textOperator.isVisible = isSim
@@ -200,6 +241,7 @@ class MainActivity : AppCompatActivity() {
                 "Heartbeat, ошибки и служебные события"
             }
         }
+        if (isService) binding.textSmsActivity.text = smsActivityText()
         bindingFields = false
     }
 
@@ -229,6 +271,29 @@ class MainActivity : AppCompatActivity() {
         binding.textTitle.text = updated.displayName()
     }
 
+    private fun smsActivityText(): String {
+        val sims = routes.filter { it.kind == RouteKind.SIM }
+        if (sims.isEmpty()) return "SIM-карты ещё не обнаружены"
+        val formatter = java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.MEDIUM,
+            java.text.DateFormat.SHORT
+        )
+        return sims.joinToString("\n") { sim ->
+            val time = if (sim.lastSmsAt == 0L) "ещё не было" else formatter.format(java.util.Date(sim.lastSmsAt))
+            "${if (sim.active) "●" else "○"} ${sim.displayName()} — $time"
+        }
+    }
+
+    private fun refreshSmsActivity() {
+        val storedById = MappingStore.allRoutes(this).associateBy { it.id }
+        routes = routes.map { route ->
+            storedById[route.id]?.let { stored -> route.copy(lastSmsAt = stored.lastSmsAt) } ?: route
+        }
+        if (selectedRouteId == MappingStore.SERVICE_ID) {
+            binding.textSmsActivity.text = smsActivityText()
+        }
+    }
+
     private fun sendTestMessage() {
         flushPendingSave()
         val route = MappingStore.loadRoute(this, selectedRouteId)
@@ -241,8 +306,11 @@ class MainActivity : AppCompatActivity() {
             val result = runCatching {
                 TelegramClient(route.botToken).sendMessage(
                     route.chatId,
-                    if (route.kind == RouteKind.SERVICE) "Тест служебного канала Route SMS"
-                    else "Тест Route SMS: ${route.displayName()}"
+                    when (route.kind) {
+                        RouteKind.SERVICE -> HealthReport.build(this@MainActivity)
+                        RouteKind.SIM -> HealthReport.simInfo(route)
+                        RouteKind.DEFAULT -> "↪️ Route SMS — резервный маршрут\nИспользуется, если SIM входящего SMS определить не удалось."
+                    }
                 )
             }
             binding.btnTest.isEnabled = true
